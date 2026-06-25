@@ -28,6 +28,7 @@
       gap: 12px;
     }
     h1 { font-size: 24px; color: #1a73e8; font-weight: 600; }
+    .store-info { font-size: 13px; color: #5f6368; margin-top: 4px; }
     .btn { 
       background: #1a73e8; 
       color: white; 
@@ -41,6 +42,8 @@
     .btn:hover { background: #1557b0; }
     .btn-secondary { background: #5f6368; }
     .btn-secondary:hover { background: #3c4043; }
+    .btn-danger { background: #ea4335; }
+    .btn-danger:hover { background: #d93025; }
     #products { 
       display: grid; 
       grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); 
@@ -72,17 +75,49 @@
       margin-left: 6px;
     }
     .empty { text-align: center; grid-column: 1/-1; padding: 40px; color: #5f6368; }
+    #adminPanel { 
+      display: none; 
+      background: white; 
+      padding: 20px; 
+      border-radius: 12px; 
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      margin-bottom: 24px;
+    }
+    #adminPanel input { 
+      width: 100%; 
+      padding: 10px; 
+      margin: 8px 0; 
+      border: 1px solid #dadce0; 
+      border-radius: 8px; 
+    }
+    .admin-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
   </style>
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>Dijanglung Store</h1>
+      <div>
+        <h1>Dijanglung Store</h1>
+        <div class="store-info">Owner: Panjen Loungam | Contact: 9366998248 | panjenloungam@gmail.com</div>
+      </div>
       <div>
         <button class="btn btn-secondary" onclick="viewCart()">Cart <span id="cartCount" class="cart-count">0</span></button>
         <button class="btn" id="authBtn" onclick="handleAuth()">Admin Login</button>
       </div>
     </header>
+    
+    <div id="adminPanel">
+      <h2>Admin Panel</h2>
+      <p>Logged in as: <b id="adminEmail"></b></p>
+      <h3 style="margin-top:16px;">Add New Product</h3>
+      <input id="newProductName" placeholder="Product Name">
+      <input id="newProductDesc" placeholder="Description">
+      <input id="newProductPrice" placeholder="Price in ₹" type="number">
+      <div class="admin-actions">
+        <button class="btn" onclick="addProduct()">Add Product</button>
+        <button class="btn btn-danger" onclick="handleAuth()">Logout</button>
+      </div>
+    </div>
     
     <div id="loading">Loading products...</div>
     <div id="products"></div>
@@ -102,6 +137,7 @@
     const db = firebase.firestore();
     const auth = firebase.auth();
     
+    const ADMIN_EMAIL = "panjenloungam@gmail.com";
     let cart = JSON.parse(localStorage.getItem('dijanglung_cart')) || [];
     updateCartCount();
 
@@ -112,18 +148,20 @@
       loadingDiv.style.display = 'none';
       
       if (snapshot.empty) {
-        productsDiv.innerHTML = '<div class="empty">No products yet. Add some in Firebase → Firestore → products collection.</div>';
+        productsDiv.innerHTML = '<div class="empty">No products yet. Login as admin to add products.</div>';
         return;
       }
 
       snapshot.forEach((doc) => {
         const p = doc.data();
+        const isAdmin = auth.currentUser && auth.currentUser.email === ADMIN_EMAIL;
         productsDiv.innerHTML += `
           <div class="product">
             <h3>${p.name}</h3>
             <p>${p.description || ''}</p>
             <div class="price">₹${p.price}</div>
             <button class="btn" onclick="addToCart('${doc.id}', '${p.name.replace(/'/g, "\\'")}', ${p.price})">Add to Cart</button>
+            ${isAdmin ? `<button class="btn btn-danger" style="margin-left:8px;" onclick="deleteProduct('${doc.id}')">Delete</button>` : ''}
           </div>
         `;
       });
@@ -156,7 +194,10 @@
         total += i.price * i.qty;
         return `${i.name} x${i.qty} - ₹${i.price * i.qty}`;
       }).join('\n');
-      alert(`Cart:\n\n${items}\n\nTotal: ₹${total}`);
+      if(confirm(`Cart:\n\n${items}\n\nTotal: ₹${total}\n\nCheckout via WhatsApp?`)) {
+        const msg = encodeURIComponent(`Hi, I want to order:\n${items}\n\nTotal: ₹${total}`);
+        window.open(`https://wa.me/919366998248?text=${msg}`, '_blank');
+      }
     }
 
     function handleAuth() {
@@ -168,9 +209,50 @@
       }
     }
 
+    function addProduct() {
+      const name = document.getElementById('newProductName').value;
+      const desc = document.getElementById('newProductDesc').value;
+      const price = Number(document.getElementById('newProductPrice').value);
+      
+      if(!name || !price) return alert('Name and price required');
+      
+      db.collection("products").add({
+        name: name,
+        description: desc,
+        price: price,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      }).then(() => {
+        alert('Product added!');
+        document.getElementById('newProductName').value = '';
+        document.getElementById('newProductDesc').value = '';
+        document.getElementById('newProductPrice').value = '';
+      }).catch(err => alert('Error: ' + err.message));
+    }
+
+    function deleteProduct(id) {
+      if(confirm('Delete this product?')) {
+        db.collection("products").doc(id).delete();
+      }
+    }
+
     auth.onAuthStateChanged((user) => {
-      document.getElementById('authBtn').textContent = user ? 'Logout' : 'Admin Login';
+      const authBtn = document.getElementById('authBtn');
+      const adminPanel = document.getElementById('adminPanel');
+      
+      if (user) {
+        if (user.email === ADMIN_EMAIL) {
+          authBtn.textContent = 'Logout';
+          adminPanel.style.display = 'block';
+          document.getElementById('adminEmail').textContent = user.email;
+        } else {
+          alert('Access denied. Only panjenloungam@gmail.com can access admin.');
+          auth.signOut();
+        }
+      } else {
+        authBtn.textContent = 'Admin Login';
+        adminPanel.style.display = 'none';
+      }
     });
   </script>
 </body>
-</html>
+  </html>
